@@ -18,20 +18,25 @@ namespace CourseLibrary.API.Controllers
         private readonly ICourseLibraryRepository repository;
         private readonly IMapper mapper;
         private readonly IPropertyMappingService propertyMappingService;
+        private readonly IPropertyCheckerService propertyCheckerService;
 
-        public AuthorsController(ICourseLibraryRepository repository, IMapper mapper, IPropertyMappingService propertyMappingService)
+        public AuthorsController(ICourseLibraryRepository repository, IMapper mapper, IPropertyMappingService propertyMappingService, IPropertyCheckerService propertyCheckerService)
         {
 
             this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
             this.mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
             this.propertyMappingService = propertyMappingService ?? throw new ArgumentException(nameof(propertyMappingService));
+            this.propertyCheckerService = propertyCheckerService ?? throw new ArgumentException(nameof(propertyCheckerService));
         }
 
         [HttpGet(Name = "GetAuthors")]
         [HttpHead]
-        public ActionResult<IEnumerable<AuthorDto>> GetAuthors([FromQuery] AuthorsResourceParameters authorsResourceParameters)
+        public IActionResult GetAuthors([FromQuery] AuthorsResourceParameters authorsResourceParameters)
         {
             if (!propertyMappingService.ValidMappingExistsFor<AuthorDto, Author>(authorsResourceParameters.OrderBy))
+                return BadRequest();
+
+            if (!propertyCheckerService.TypeHasProperties<AuthorDto>(authorsResourceParameters.Fields))
                 return BadRequest();
 
             var authorsFromRepo = repository.GetAuthors(authorsResourceParameters);
@@ -51,18 +56,22 @@ namespace CourseLibrary.API.Controllers
 
             Response.Headers.Add("X-Pagination", JsonSerializer.Serialize(paginamtionMetadata));
 
-            return Ok(mapper.Map<IEnumerable<AuthorDto>>(authorsFromRepo));
+            return Ok(mapper.Map<IEnumerable<AuthorDto>>(authorsFromRepo)
+                .ShapeData(authorsResourceParameters.Fields));
         }
 
         [HttpGet("{authorId}", Name = "GetAuthor")]
-        public IActionResult GetAuthor(Guid authorId)
+        public IActionResult GetAuthor(Guid authorId, string fields)
         {
+            if (!propertyCheckerService.TypeHasProperties<AuthorDto>(fields))
+                return BadRequest();
+
             var author = repository.GetAuthor(authorId);
 
             if (author == null)
                 return NotFound();
 
-            return Ok(mapper.Map<AuthorDto>(author));
+            return Ok(mapper.Map<AuthorDto>(author).ShapeData(fields));
         }
 
         [HttpPost]
@@ -105,6 +114,7 @@ namespace CourseLibrary.API.Controllers
                 ResourceUriType.PreviousPage => Url.Link("GetAuthors",
                     new
                     {
+                        fields = parameters.Fields,
                         orderBy = parameters.OrderBy,
                         pageNumber = parameters.PageNumber - 1,
                         pageSize = parameters.PageSize,
@@ -114,6 +124,7 @@ namespace CourseLibrary.API.Controllers
                 ResourceUriType.NextPage => Url.Link("GetAuthors",
                     new
                     {
+                        fields = parameters.Fields,
                         orderBy = parameters.OrderBy,
                         pageNumber = parameters.PageNumber + 1,
                         pageSize = parameters.PageSize,
@@ -123,6 +134,7 @@ namespace CourseLibrary.API.Controllers
                 _ => Url.Link("GetAuthors",
                     new
                     {
+                        fields = parameters.Fields,
                         orderBy = parameters.OrderBy,
                         pageNumber = parameters.PageNumber,
                         pageSize = parameters.PageSize,
