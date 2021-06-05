@@ -1,5 +1,7 @@
 ﻿using CourseLibrary.API.DbContexts;
 using CourseLibrary.API.Entities;
+using CourseLibrary.API.Helpers;
+using CourseLibrary.API.Models;
 using CourseLibrary.API.ResourceParameters;
 using System;
 using System.Collections.Generic;
@@ -10,10 +12,12 @@ namespace CourseLibrary.API.Services
     public class CourseLibraryRepository : ICourseLibraryRepository, IDisposable
     {
         private readonly CourseLibraryContext _context;
+        private readonly IPropertyMappingService _propertyMappingService;
 
-        public CourseLibraryRepository(CourseLibraryContext context)
+        public CourseLibraryRepository(CourseLibraryContext context, IPropertyMappingService propertyMappingService)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
+            _propertyMappingService = propertyMappingService ?? throw new ArgumentNullException(nameof(propertyMappingService));
         }
 
         public void AddCourse(Guid authorId, Course course)
@@ -120,15 +124,13 @@ namespace CourseLibrary.API.Services
 
         public IEnumerable<Author> GetAuthors()
         {
-            return _context.Authors.ToList<Author>();
+            return _context.Authors.ToList();
         }
-        public IEnumerable<Author> GetAuthors(AuthorsResourceParameters authorsResourceParameters)
-        {
-            if(authorsResourceParameters == null)
-                return GetAuthors();
 
-            if (string.IsNullOrWhiteSpace(authorsResourceParameters.MainCategory) && string.IsNullOrWhiteSpace(authorsResourceParameters.SearchQuery))
-                return GetAuthors();
+        public PagedList<Author> GetAuthors(AuthorsResourceParameters authorsResourceParameters)
+        {
+            if (authorsResourceParameters == null)
+                return (PagedList<Author>)GetAuthors();
 
             var collection = _context.Authors as IQueryable<Author>;
 
@@ -146,37 +148,46 @@ namespace CourseLibrary.API.Services
                     || a.LastName.Contains(searchQuery));
             }
 
-            return collection.ToList();
+            if (!string.IsNullOrWhiteSpace(authorsResourceParameters.OrderBy))
+            {
+                var authorPropertyMappingDictionary = _propertyMappingService.GetPropertyMapping<AuthorDto, Author>();
+
+                collection = collection.ApplySort(authorsResourceParameters.OrderBy, authorPropertyMappingDictionary);
+            }
+
+
+            return PagedList<Author>.Create(collection, authorsResourceParameters.PageNumber, authorsResourceParameters.PageSize);
+
         }
 
-            public IEnumerable<Author> GetAuthors(IEnumerable<Guid> authorIds)
+        public IEnumerable<Author> GetAuthors(IEnumerable<Guid> authorIds)
+        {
+            if (authorIds == null)
             {
-                if (authorIds == null)
-                {
-                    throw new ArgumentNullException(nameof(authorIds));
-                }
-
-                return _context.Authors.Where(a => authorIds.Contains(a.Id))
-                    .OrderBy(a => a.FirstName)
-                    .OrderBy(a => a.LastName)
-                    .ToList();
+                throw new ArgumentNullException(nameof(authorIds));
             }
 
-            public void UpdateAuthor(Author author)
-            {
-                // no code in this implementation
-            }
+            return _context.Authors.Where(a => authorIds.Contains(a.Id))
+                .OrderBy(a => a.FirstName)
+                .OrderBy(a => a.LastName)
+                .ToList();
+        }
 
-            public bool Save()
-            {
-                return (_context.SaveChanges() >= 0);
-            }
+        public void UpdateAuthor(Author author)
+        {
+            // no code in this implementation
+        }
 
-            public void Dispose()
-            {
-                Dispose(true);
-                GC.SuppressFinalize(this);
-            }
+        public bool Save()
+        {
+            return (_context.SaveChanges() >= 0);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
 
         protected virtual void Dispose(bool disposing)
         {
